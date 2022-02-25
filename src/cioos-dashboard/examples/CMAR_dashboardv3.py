@@ -1,6 +1,22 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+from ..dashboard import IDashboard, IDashboardBuilder 
+import pandas as pd
+import numpy as np
+import panel as pn
+import holoviews as hv
+from bokeh.models.formatters import DatetimeTickFormatter
+from bokeh.models import CategoricalColorMapper
+from datashader.colors import Greys9, Hot, Elevation, Sets1to3
+import datashader as ds
+import holoviews.operation.datashader as hd
+import hvplot.pandas
+
+
+hv.extension("bokeh")
+pn.extension(sizing_mode='fixed')
+
 # # Dashboard for interactively measures for Temperature and Dissolved Oxygen in Nova Scotia
 # 
 # Created By: Rine Zaman, Larissa Dos Santos Soares, and James Munroe
@@ -41,7 +57,7 @@
 # 
 # A number of chemical reactions start immediately after the death of the fish. These include reactions that are responsible for how fish quality changes during chilled storage, such as: Rigor mortis, where death terminates the supply of oxygen to the muscle; Protein changes, once the post-mortem degradation of proteins is one of the most important processes influencing the textural quality of fish muscle (Delbarre-Ladrat et al., 2006); Lipid changes, that may produce a range of substances during post-mortem events (Undeland, 1997); and Microbial changes, where the influence on the chilled fish induces bacterial growth until the specific spoilage organisms have increased to a certain level (Gram and Huss, 1996).
 # 
-# ## Conlusion
+# ## Conclusion
 # 
 # Just like humans, all of the marine living creatures need oxygen to survive. Humans use their lungs to inhale oxygen from the air, but worms, fish, crabs and other underwater animals use gills to get oxygen from the water or through diffusion. These organisms breathe and develop better when there is more oxygen in the water. As dissolved oxygen levels decrease, it becomes harder for animals to get the oxygen they need to survive.
 # 
@@ -49,97 +65,99 @@
 # 
 # 
 
-# In[2]:
+class CMAR(IDashboard):
+    __id_list = ['wpsu-7fer','knwz-4bap',
+                  'eb3n-uxcb','x9dy-aai9',
+                  'a9za-3t63','eda5-aubu',
+                  'adpu-nyt8','v6sa-tiit',
+                  'mq2k-54s4','9qw2-yb2f']
+    _settings: dict
+
+    station_selector = pn.widgets.Select(name="Select Station", options = stationlist, value=stationlist[0], width=800,)
 
 
-import pandas as pd
-import os
-from erddapy import ERDDAP
-import numpy as np
-
-IDlist = ['wpsu-7fer','knwz-4bap',
-                  'eb3n-uxcb','x9dy-aai9','a9za-3t63','eda5-aubu','adpu-nyt8','v6sa-tiit','mq2k-54s4','9qw2-yb2f']
-stationdict = {}
-e = ERDDAP(server="https://dev.cioosatlantic.ca/erddap",
-                 protocol="tabledap", )
-e.auth = ("cioosatlantic", "4oceans")
-e.response = "csv"
-for val in IDlist:
-    e.dataset_id = val
-    e.variables = ['waterbody_station']
-    df = e.to_pandas()
-    df.waterbody_station= df.waterbody_station.astype(str)
-    stations = sorted(list(df.waterbody_station.unique()))
-    for i in range(len(stations)):
-        stationdict[stations[i]]= val
-
-stationlist = list(stationdict.keys())
-        
-
-
-# In[3]:
-
-
-def getdata(station_name):
-    e = ERDDAP(server="https://dev.cioosatlantic.ca/erddap",
-                 protocol="tabledap", )
-    e.auth = ("cioosatlantic", "4oceans")
-    e.response = "csv"
-    e.variables = ['waterbody_station', 'latitude', 'longitude', 'time', 'Temperature', 'Dissolved_Oxygen', 'depth']
-    e.dataset_id = stationdict.get(station_name)
-    e.constraints = {"waterbody_station=":station_name}
-    df = e.to_pandas()
-    df = df.sort_values(by=['time (UTC)'])
-    df['time (UTC)'] = pd.to_datetime(df['time (UTC)'], format="%Y-%m-%dT%H:%M:%SZ")
-    df = df.set_index(df['time (UTC)'].astype(np.datetime64))
-    df['DO mg/L']  = ((df['Temperature (degrees Celsius)']*0.0026)**2-(df['Temperature (degrees Celsius)']*0.2567)+11.698)*(df['Dissolved_Oxygen (% saturation)']/100)
-    df = df.rename(columns={'depth (m)': "depth"})
-    df = df.rename(columns={'latitude (degrees_north)': "latitude"})
-    df = df.rename(columns={'longitude (degrees_east)': "longitude"})
-    df = df.rename(columns={'Temperature (degrees Celsius)':'Temperature'})
-    df = df.rename(columns={'Dissolved_Oxygen (% saturation)': 'DO %'})
-    df.depth= df.depth.astype('category')
+    def __init__(self, **settings):
+        self._settings = settings
     
-    return df
+    def getData(self, station) -> pd.DataFrame:
+        """Create dataframe from errdap settings."""
+        if not self._settings['erddap']:
+            raise LookupError("No erddap settings present. Either establish settings or use Builder.")
+        e = self._settings.erddap
+        df = e.to_pandas()
+        df = df.sort_values(by=['time (UTC)'])
+        df['time (UTC)'] = pd.to_datetime(df['time (UTC)'], format="%Y-%m-%dT%H:%M:%SZ")
+        df = df.set_index(df['time (UTC)'].astype(np.datetime64))
+        df['DO mg/L']  = ((df['Temperature (degrees Celsius)']*0.0026)**2-(df['Temperature (degrees Celsius)']*0.2567)+11.698)*(df['Dissolved_Oxygen (% saturation)']/100)
+        df = df.rename(columns={'depth (m)': "depth"})
+        df = df.rename(columns={'latitude (degrees_north)': "latitude"})
+        df = df.rename(columns={'longitude (degrees_east)': "longitude"})
+        df = df.rename(columns={'Temperature (degrees Celsius)':'Temperature'})
+        df = df.rename(columns={'Dissolved_Oxygen (% saturation)': 'DO %'})
+        df.depth= df.depth.astype('category')   
+        return df
+
+    def setTitle(self, title):
+        self._settings['title'] = title
+
+    def updateparam(self, target, event):
+        plotpane.loading = True
+        target.object = self.plot(event.new)
+        plotpane.loading = False
+
+    def getPanel(self):
+        pass
+
+    def plot(self, station_name):
+        data = self.getdata(station_name)
+        plottemp = data.hvplot.points(x='time (UTC)', y='Temperature', c='depth',
+                                  color_key = colorkey, 
+                                   datashade=True, 
+                                   aggregator= ds.count_cat('depth')).opts(**opts) 
+        spreadtemp = hd.dynspread(plottemp, threshold=.999, max_px=2).opts(bgcolor='white', 
+                        width=1000, height=450, show_grid=True,tools = ["hover"],alpha=1)
+        plotoxy = data.hvplot.points(x='time (UTC)',y= 'DO mg/L' , c='depth',
+                                  color_key = colorkey, datashade=True, 
+                                   aggregator= ds.count_cat('depth') ).opts(**opts)
+        spreadoxy = hd.dynspread(plotoxy, threshold=.999, max_px=2).opts(bgcolor='white', 
+                        width=1000, height=450, show_grid=True,tools = ["hover"],alpha=1)
+        #oxylimit1 = hv.HLine(6).opts(color='red', line_dash='dashed', line_width=4.0)*hv.Text(data['time (UTC)'].median(),6.2, "oxygen limit for x" )
+        oxyspan = hv.HSpan(0,6).opts(fill_color='red' )
+        tempspan = hv.HSpan(-100, -0.7).opts(fill_color='blue', alpha=0.5) 
+        plots = (spreadtemp*tempspan+spreadoxy*oxyspan).opts(shared_axes=True, toolbar='right')
+        return plots.cols(1)
+
+    def geoplot(self, station_name):
+        data = self.getdata(station_name)
+        locations = data.groupby('waterbody_station')['longitude', 'latitude'].mean()
+        x, y = ds.utils.lnglat_to_meters(locations.longitude, locations.latitude)
+        stationlocation = locations.assign(x=x,y=y)
+        plotlocs = stationlocation.hvplot.points('x','y',hover_cols=['waterbody_station']).opts(color='red')
+        mapplot = (tiles*plotlocs).options(xlim=(-7.05e6, -7e6), ylim=(5.2e6, 6e6), aspect='equal', xaxis=None,yaxis=None,
+                                      active_tools=['pan', 'wheel_zoom'], toolbar=None)
+        return mapplot
+    
+      
+
+    
 
 
-# In[4]:
 
 
-import panel as pn
-import holoviews as hv
-from bokeh.models.formatters import DatetimeTickFormatter
-from bokeh.models import CategoricalColorMapper
-from datashader.colors import Greys9, Hot, Elevation, Sets1to3
-import datashader as ds
-import holoviews.operation.datashader as hd
-import hvplot.pandas
 
-
-hv.extension("bokeh")
-pn.extension(sizing_mode='fixed')
 
 
 
 depthlist = list(range(1,32))
 varlist = ['Temperature (degrees Celsius)', 'Dissolved_Oxygensizing_mode (% saturation)']
 
-station_selector = pn.widgets.Select(name="Select Station", options = stationlist, value=stationlist[0], width=800,)
 
 
 ############################################################################################################
 tileopts = hv.opts.Tiles(width=400, height=400, projection=True )
 tiles = hv.element.tiles.EsriImagery().opts(tileopts)
 
-def geoplot(station_name):
-    data = getdata(station_name)
-    locations = data.groupby('waterbody_station')['longitude', 'latitude'].mean()
-    x, y = ds.utils.lnglat_to_meters(locations.longitude, locations.latitude)
-    stationlocation = locations.assign(x=x,y=y)
-    plotlocs = stationlocation.hvplot.points('x','y',hover_cols=['waterbody_station']).opts(color='red')
-    mapplot = (tiles*plotlocs).options(xlim=(-7.05e6, -7e6), ylim=(5.2e6, 6e6), aspect='equal', xaxis=None,yaxis=None,
-                                      active_tools=['pan', 'wheel_zoom'], toolbar=None)
-    return mapplot
+
 
 def updategeo(target, event):
     target.object = geoplot(event.new)
@@ -155,35 +173,11 @@ colors = Elevation+Hot+Greys9+Sets1to3[0:5]
 colorkey = dict(zip(depthlist, colors))
 
 
-def plot(station_name):
-    data = getdata(station_name)
-    plottemp = data.hvplot.points(x='time (UTC)', y='Temperature', c='depth',
-                                  color_key = colorkey, 
-                                   datashade=True, 
-                                   aggregator= ds.count_cat('depth')).opts(**opts)
-    
-    spreadtemp = hd.dynspread(plottemp, threshold=.999, max_px=2).opts(bgcolor='white', 
-                        width=1000, height=450, show_grid=True,tools = ["hover"],alpha=1)
-    plotoxy = data.hvplot.points(x='time (UTC)',y= 'DO mg/L' , c='depth',
-                                  color_key = colorkey, datashade=True, 
-                                   aggregator= ds.count_cat('depth') ).opts(**opts)
-    spreadoxy = hd.dynspread(plotoxy, threshold=.999, max_px=2).opts(bgcolor='white', 
-                        width=1000, height=450, show_grid=True,tools = ["hover"],alpha=1)
-    #oxylimit1 = hv.HLine(6).opts(color='red', line_dash='dashed', line_width=4.0)*hv.Text(data['time (UTC)'].median(),6.2, "oxygen limit for x" )
-    oxyspan = hv.HSpan(0,6).opts(fill_color='red' )
-    tempspan = hv.HSpan(-100, -0.7).opts(fill_color='blue', alpha=0.5)
-    
-
-    
-    plots = (spreadtemp*tempspan+spreadoxy*oxyspan).opts(shared_axes=True, toolbar='right')
-    return plots.cols(1)
 
 
 
-def updatestation(target, event):
-    plotpane.loading = True
-    target.object = plot(event.new)
-    plotpane.loading = False
+
+
 
 
 plotpane = pn.pane.HoloViews(plot(station_selector.value) ,background='#dbefe1', )
@@ -274,6 +268,20 @@ dashboard.servable()
 # 
 
 # In[ ]:
+
+if __name__ == "__main__":
+         e.auth = ("cioosatlantic", "4oceans")
+    e.response = "csv"
+    e.dataset_id = stationdict.get(station_name)
+    e.constraints = {"waterbody_station=":station_name}
+     __dashboard: IDashboard = IDashboardBuilder(CMAR()) \
+                              .reset() \
+                              .buildERDDAP( \
+                                  "https://dev.cioosatlantic.ca/erddap",
+                                  "tabledap",
+                                  ("cioosatlantic", "4oceans"),
+                                  "csv") \
+                              .setLookups(__id_list, "waterbody_station")
 
 
 

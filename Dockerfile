@@ -15,7 +15,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN python -m pip install -r requirements.txt
 
-EXPOSE 6000
+EXPOSE 8050
 
 WORKDIR /app
 COPY . /app

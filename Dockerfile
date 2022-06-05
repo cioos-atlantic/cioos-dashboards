@@ -1,19 +1,24 @@
 # For more information, please refer to https://aka.ms/vscode-docker-python
-FROM python:3.9.13-alpine3.16
-
+FROM continuumio/anaconda3
 # Keeps Python from generating .pyc files in the container
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Turns off buffering for easier container logging
 ENV PYTHONUNBUFFERED=1
 
-# Install c libraries necessary for running pandas and numpy
-RUN apk --no-cache add musl-dev linux-headers g++
+RUN apt-get update && apt-get install -y libgtk2.0-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 
 # Install pip requirements
 COPY requirements.txt .
-RUN pip install --upgrade pip
-RUN python -m pip install -r requirements.txt
+
+RUN conda config --add channels conda-forge
+RUN /opt/conda/bin/conda update --all --yes
+RUN /opt/conda/bin/conda create --name dashboard --file requirements.txt
+RUN activate dashboard
+
+RUN pip install -r requirements.txt
 
 EXPOSE 8050
 
